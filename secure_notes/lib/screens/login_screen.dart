@@ -4,8 +4,10 @@ import 'register_screen.dart';
 import 'main_screen.dart';
 
 class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key}); // Add const constructor
+
   @override
-  _LoginScreenState createState() => _LoginScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
