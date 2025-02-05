@@ -5,6 +5,7 @@ import '../db/local_db.dart';
 import '../services/sync_service.dart';
 import 'login_screen.dart';
 import 'settings_screen.dart';
+import '../services/security_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,7 +23,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     loadNotes();
-    _syncTimer = Timer.periodic(const Duration(minutes: 5), (_) => SyncService.syncNotes());
+    _syncTimer = Timer.periodic(
+        const Duration(minutes: 1), (_) => SyncService.syncNotes());
     SyncService.syncNotes().then((_) => print('Initial sync complete'));
   }
 
@@ -114,17 +116,36 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (result != null && mounted) {
-      await LocalDB.updateNote(note['id'], result['title']!, result['content']!);
+      await LocalDB.updateNote(
+          note['id'], result['title']!, result['content']!);
       await SyncService.syncNotes();
       loadNotes();
     }
   }
 
+  // Future<void> _deleteNote(int id) async {
+  //   await LocalDB.deleteNote(id);
+  //   if (mounted) {
+  //     await SyncService.syncNotes();
+  //     loadNotes();
+  //   }
+  // }
+
   Future<void> _deleteNote(int id) async {
-    await LocalDB.deleteNote(id);
-    if (mounted) {
-      await SyncService.syncNotes();
-      loadNotes();
+    try {
+      await LocalDB.deleteNote(id);
+      await SyncService.syncNotes(); // Sync with remote
+      await loadNotes(); // Refresh list
+
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Note deleted')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     }
   }
 
@@ -210,8 +231,9 @@ class _NoteDialogState extends State<NoteDialog> {
           onPressed: () {
             if (_formKey.currentState!.validate()) {
               Navigator.pop(context, {
-                'title': _titleController.text,
-                'content': _contentController.text,
+                'title': SecurityService.sanitizeInput(_titleController.text),
+                'content':
+                    SecurityService.sanitizeInput(_contentController.text),
               });
             }
           },

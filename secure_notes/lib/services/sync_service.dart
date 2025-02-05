@@ -43,50 +43,44 @@ class SyncService {
       // Push local changes to remote
       for (var note in localNotes) {
         try {
-          bool exists = existingRemoteNotes.any((remote) =>
-              remote['title'] == note['title'] &&
-              remote['content'] == note['content'] &&
-              remote['created_at'] == note['created_at']);
+          final existingNote = existingRemoteNotes
+              .where((n) => n['id'] == note['id'])
+              .firstOrNull;
 
-          if (!exists) {
-            _logger.i('Uploading new note to Supabase');
-            await supabase.from('notes').upsert({
-              'user_id': userId,
+          if (existingNote == null) {
+            // Insert new note
+            await supabase.from('notes').insert({
               'title': note['title'],
               'content': note['content'],
-              'created_at': note['created_at'],
+              'user_id': userId,
             });
           } else {
-            _logger.i('Note already exists in remote, skipping');
+            // Update existing note
+            await supabase
+                .from('notes')
+                .update({
+                  'title': note['title'],
+                  'content': note['content'],
+                })
+                .eq('id', existingNote['id'])
+                .eq('user_id', userId);
           }
         } catch (e) {
           _logger.e('Error syncing note to remote: $e');
         }
       }
 
-      // Pull remote changes to local
-      _logger.i('Syncing ${existingRemoteNotes.length} remote notes to local');
+      // Handle deleted notes
       for (var remoteNote in existingRemoteNotes) {
-        try {
-          bool exists = localNotes.any((local) =>
-              local['title'] == remoteNote['title'] &&
-              local['content'] == remoteNote['content'] &&
-              local['created_at'] == remoteNote['created_at']);
-
-          if (!exists) {
-            _logger.i('Downloading new note from Supabase');
-            await LocalDB.addNote(
-              remoteNote['title'],
-              remoteNote['content'],
-            );
-          }
-        } catch (e) {
-          _logger.e('Error syncing note to local: $e');
+        if (!localNotes.any((local) => local['id'] == remoteNote['id'])) {
+          await supabase
+              .from('notes')
+              .delete()
+              .eq('id', remoteNote['id'])
+              .eq('user_id', userId);
         }
       }
 
-      // Sync preferences
-      await syncPreferences();
       _logger.i('Sync completed successfully');
 
     } catch (e) {
@@ -104,7 +98,7 @@ class SyncService {
     }
 
     try {
-      // Check if preferences exist
+      // Get remote preferences
       final existingPrefs = await supabase
           .from('preferences')
           .select()
@@ -122,7 +116,6 @@ class SyncService {
           'font_size': localPrefs['font_size'],
           'notifications_enabled': localPrefs['notifications_enabled'] == 1,
           'sync_interval': localPrefs['sync_interval'],
-          'updated_at': DateTime.now().toIso8601String(),
         });
       } else {
         // Update existing preferences
@@ -133,7 +126,6 @@ class SyncService {
             'font_size': localPrefs['font_size'],
             'notifications_enabled': localPrefs['notifications_enabled'] == 1,
             'sync_interval': localPrefs['sync_interval'],
-            'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('user_id', userId);
       }
@@ -158,10 +150,5 @@ class SyncService {
     } catch (e) {
       _logger.e('Preferences sync failed: $e');
     }
-  }
-
-  static Future<bool> isOnline() async {
-    final connectivityResult = await Connectivity().checkConnectivity();
-    return connectivityResult != ConnectivityResult.none;
   }
 }
