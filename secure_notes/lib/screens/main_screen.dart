@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../db/local_db.dart';
 import '../services/sync_service.dart';
 import 'login_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,12 +18,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _syncTimer;
   final _supabase = Supabase.instance.client;
 
-    @override
+  @override
   void initState() {
     super.initState();
     loadNotes();
     _syncTimer = Timer.periodic(const Duration(minutes: 5), (_) => SyncService.syncNotes());
-    // Add immediate sync
     SyncService.syncNotes().then((_) => print('Initial sync complete'));
   }
 
@@ -47,6 +47,13 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('My Notes'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => logout(context),
@@ -127,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     Navigator.pushReplacement(
       navigatorContext,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      MaterialPageRoute(builder: (context) => LoginScreen()),
     );
   }
 }

@@ -21,6 +21,10 @@ class LocalDB {
     return '${dir.path}/secure_notes.db';
   }
 
+  static String? getCurrentUserId() {
+    return Supabase.instance.client.auth.currentUser?.id;
+  }
+
   static Future<Database> initDB() async {
     final dbPath = await _getDatabasePath();
     final encryptionKey = await _getEncryptionKey();
@@ -28,25 +32,44 @@ class LocalDB {
     return _database ??= await openDatabase(
       dbPath,
       password: encryptionKey,
-      version: 1,
-      onCreate: (db, version) {
-        db.execute('''
-          CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-          )
-        ''');
+      version: 2,
+      onCreate: (db, version) async {
+        await _createTables(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createTables(db);
+        }
       },
     );
   }
 
-  static String? getCurrentUserId() {
-    return Supabase.instance.client.auth.currentUser?.id;
+  static Future<void> _createTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS preferences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL UNIQUE,
+        theme_mode TEXT DEFAULT 'system',
+        font_size INTEGER DEFAULT 16,
+        notifications_enabled INTEGER DEFAULT 1,
+        sync_interval INTEGER DEFAULT 5,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
   }
 
+  // Notes CRUD operations
   static Future<int> addNote(String title, String content) async {
     final db = await initDB();
     final userId = getCurrentUserId();
@@ -56,7 +79,6 @@ class LocalDB {
       'title': title,
       'content': content,
       'created_at': DateTime.now().toIso8601String(),
-      
     });
   }
 
@@ -64,12 +86,10 @@ class LocalDB {
     final db = await initDB();
     final userId = getCurrentUserId();
     
-    return await db.query(
-      'notes',
-      where: 'user_id = ?',
-      whereArgs: [userId],
-      orderBy: 'created_at DESC'
-    );
+    return await db.query('notes',
+        where: 'user_id = ?', 
+        whereArgs: [userId], 
+        orderBy: 'created_at DESC');
   }
 
   static Future<int> updateNote(int id, String title, String content) async {
@@ -81,46 +101,9 @@ class LocalDB {
       {
         'title': title,
         'content': content,
-        'updated_at': DateTime.now().toIso8601String(),
-        
       },
       where: 'id = ? AND user_id = ?',
       whereArgs: [id, userId],
-    );
-  }
-
-  static Future<void> upsertNote(
-    int remoteId,
-    String title,
-    String content,
-    String createdAt,
-  ) async {
-    final db = await initDB();
-    final userId = getCurrentUserId();
-    
-    await db.insert(
-      'notes',
-      {
-        'remote_id': remoteId,
-        'user_id': userId,
-        'title': title,
-        'content': content,
-        'created_at': createdAt,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
-  static Future<int> updateRemoteId(int localId, int remoteId) async {
-    final db = await initDB();
-    return await db.update(
-      'notes',
-      {
-        'remote_id': remoteId,
-      },
-      where: 'id = ?',
-      whereArgs: [localId],
     );
   }
 
@@ -135,10 +118,55 @@ class LocalDB {
     );
   }
 
-  static Future<void> closeDB() async {
-    if (_database != null) {
-      await _database!.close();
-      _database = null;
+  // Preferences operations
+  static Future<Map<String, dynamic>> getPreferences() async {
+    final db = await initDB();
+    final userId = getCurrentUserId();
+    
+    final results = await db.query(
+      'preferences',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+
+    if (results.isEmpty) {
+      // Create default preferences
+      final id = await db.insert('preferences', {
+        'user_id': userId,
+        'theme_mode': 'system',
+        'font_size': 16,
+        'notifications_enabled': 1,
+        'sync_interval': 5,
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+      
+      return {
+        'id': id,
+        'user_id': userId,
+        'theme_mode': 'system',
+        'font_size': 16,
+        'notifications_enabled': 1,
+        'sync_interval': 5,
+      };
     }
+
+    return results.first;
+  }
+
+  static Future<void> updatePreferences(Map<String, dynamic> prefs) async {
+    final db = await initDB();
+    final userId = getCurrentUserId();
+
+    await db.update(
+      'preferences',
+      {
+        ...prefs,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
   }
 }
