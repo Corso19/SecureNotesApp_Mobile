@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class LocalDB {
   static Database? _database;
   static final _secureStorage = FlutterSecureStorage();
+  static String? _encryptionKey;
 
   static Future<String> _getEncryptionKey() async {
     String? key = await _secureStorage.read(key: 'db_key');
@@ -14,6 +15,19 @@ class LocalDB {
       await _secureStorage.write(key: 'db_key', value: key);
     }
     return key;
+  }
+
+  static Future<void> initializeWithKey(String key) async {
+    _encryptionKey = key;
+    await initDB();
+  }
+
+  static Future<void> closeDatabase() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+      _encryptionKey = null;
+    }
   }
 
   static Future<String> _getDatabasePath() async {
